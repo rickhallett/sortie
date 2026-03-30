@@ -250,3 +250,32 @@ def invoke_all(
             results[name] = sortie_result
 
     return results
+
+
+def _invoke_single(
+    entry: dict,
+    diff: str,
+    prompt_path: str | None,
+    branch: str,
+    cwd: str,
+) -> SortieResult:
+    """Invoke a single roster/debrief entry and return a SortieResult.
+
+    Args:
+        entry: Roster entry dict with at least "name" and "invoke" keys.
+        diff: Git diff string (passed to build_prompt when prompt is used).
+        prompt_path: Path to prompt template file (used if entry has no per-entry prompt).
+        branch: Branch name substituted into the prompt template.
+        cwd: Working directory for the subprocess.
+
+    Returns:
+        A SortieResult for the invocation.
+    """
+    results = invoke_all(
+        roster=[entry],
+        diff=diff,
+        prompt_path=prompt_path,
+        branch=branch,
+        cwd=cwd,
+    )
+    return results[entry["name"]]
