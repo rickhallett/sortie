@@ -78,7 +78,7 @@ roster:
     timeout: 180
   - name: gemini
     invoke: cli
-    command: "gemini -p"
+    command: "gemini -p \"\""
     prompt: prompts/sortie-code.md
     timeout: 180
   - name: codex
