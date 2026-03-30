@@ -213,3 +213,104 @@ class TestDisposeSubcommand:
             assert result.returncode == 0, (
                 f"disposition {disposition!r} failed: {result.stderr}"
             )
+
+
+class TestSortieDisposeBulk:
+    def _setup_run(self, tmp_path):
+        """Create run dir with verdict.yaml and ledger.yaml. Return (config_path, run_id, ...)."""
+        tree_sha = "abcdef1234567890"
+        cycle = 1
+        run_id = f"{tree_sha}-{cycle}"
+        run_path = tmp_path / run_id
+        run_path.mkdir(parents=True)
+
+        findings = [
+            {
+                "id": "F001",
+                "summary": "SQL injection risk",
+                "severity": "critical",
+                "convergent": True,
+                "disposition": "open",
+            },
+            {
+                "id": "F002",
+                "summary": "XSS vulnerability",
+                "severity": "high",
+                "convergent": True,
+                "disposition": "open",
+            },
+            {
+                "id": "F003",
+                "summary": "Insecure dependency",
+                "severity": "medium",
+                "convergent": False,
+                "disposition": "open",
+            },
+        ]
+        verdict_data = {
+            "verdict": "fail",
+            "findings": findings,
+            "convergence": "convergent",
+            "tree_sha": tree_sha,
+            "cycle": cycle,
+        }
+        verdict_path = run_path / "verdict.yaml"
+        verdict_path.write_text(yaml.dump(verdict_data))
+
+        ledger_path = tmp_path / "ledger.yaml"
+        ledger_runs = [
+            {
+                "tree_sha": tree_sha,
+                "cycle": cycle,
+                "mode": "code",
+                "verdict": "fail",
+                "worker_branch": "feature/test",
+                "findings": findings,
+            }
+        ]
+        ledger_path.write_text(yaml.dump({"runs": ledger_runs}))
+
+        config = {
+            "roster": [],
+            "debrief": {"model": "claude", "invoke": "hook-agent", "prompt": "prompts/debrief.md"},
+            "triage": {"block_on": ["critical"]},
+            "modes": {"code": {"prompt": "prompts/sortie-code.md"}},
+            "ledger": {"path": str(ledger_path)},
+            "deposition": {"dir": str(tmp_path / "{tree_sha}-{cycle}")},
+        }
+        config_path = tmp_path / "sortie.yaml"
+        config_path.write_text(yaml.dump(config))
+
+        return config_path, run_id, tree_sha, cycle, run_path, ledger_path
+
+    def test_dispose_bulk_marks_all(self, tmp_path):
+        """dispose-bulk should update all findings in both verdict.yaml and ledger.yaml."""
+        config_path, run_id, tree_sha, cycle, run_path, ledger_path = self._setup_run(tmp_path)
+
+        result = run_cli(
+            "--config", str(config_path),
+            "dispose-bulk", run_id, "fixed",
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
+
+        # Check verdict.yaml: all findings updated
+        verdict = yaml.safe_load((run_path / "verdict.yaml").read_text())
+        for finding in verdict["findings"]:
+            assert finding["disposition"] == "fixed", (
+                f"Finding {finding['id']} not updated in verdict.yaml"
+            )
+
+        # Check ledger: all findings updated
+        ledger_data = yaml.safe_load(ledger_path.read_text())
+        run_entry = next(
+            r for r in ledger_data["runs"]
+            if r["tree_sha"] == tree_sha and r["cycle"] == cycle
+        )
+        for finding in run_entry["findings"]:
+            assert finding["disposition"] == "fixed", (
+                f"Finding {finding['id']} not updated in ledger"
+            )
+
+        # Check stdout contains finding count
+        output = result.stdout + result.stderr
+        assert "3" in output

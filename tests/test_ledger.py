@@ -147,3 +147,50 @@ class TestLedgerQuery:
         ledger = Ledger(str(path))
         results = ledger.runs_for_branch("worker-a")
         assert results == []
+
+
+class TestLedgerBulkDispose:
+    def test_bulk_dispose_marks_all_findings(self, tmp_path):
+        path = tmp_path / "ledger.yaml"
+        ledger = Ledger(str(path))
+        entry = {
+            "tree_sha": "abc123",
+            "cycle": 1,
+            "findings": [
+                {"id": "F-001", "disposition": "open"},
+                {"id": "F-002", "disposition": "open"},
+                {"id": "F-003", "disposition": "open"},
+            ],
+        }
+        ledger.append(entry)
+        count = ledger.bulk_dispose("abc123", 1, "fixed")
+        assert count == 3
+        data = ledger.load()
+        run = data["runs"][0]
+        for finding in run["findings"]:
+            assert finding["disposition"] == "fixed"
+
+    def test_bulk_dispose_nonexistent_run(self, tmp_path):
+        path = tmp_path / "ledger.yaml"
+        ledger = Ledger(str(path))
+        with pytest.raises(ValueError, match="Run not found"):
+            ledger.bulk_dispose("nonexistent", 99, "fixed")
+
+    def test_bulk_dispose_overwrites_existing(self, tmp_path):
+        path = tmp_path / "ledger.yaml"
+        ledger = Ledger(str(path))
+        entry = {
+            "tree_sha": "abc123",
+            "cycle": 1,
+            "findings": [
+                {"id": "F-001", "disposition": "deferred"},
+                {"id": "F-002", "disposition": "false-positive"},
+            ],
+        }
+        ledger.append(entry)
+        count = ledger.bulk_dispose("abc123", 1, "disagree")
+        assert count == 2
+        data = ledger.load()
+        run = data["runs"][0]
+        for finding in run["findings"]:
+            assert finding["disposition"] == "disagree"

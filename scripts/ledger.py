@@ -91,6 +91,26 @@ class Ledger:
 
         self._write(data)
 
+    def bulk_dispose(self, tree_sha: str, cycle: int, disposition: str) -> int:
+        """Mark all findings in a run with the same disposition.
+        Returns the number of findings updated.
+        Raises ValueError if run not found.
+        """
+        data = self.load()
+        target_run = None
+        for run in data["runs"]:
+            if run.get("tree_sha") == tree_sha and run.get("cycle") == cycle:
+                target_run = run
+                break
+        if target_run is None:
+            raise ValueError(f"Run not found: tree_sha={tree_sha!r} cycle={cycle}")
+        count = 0
+        for finding in target_run.get("findings", []):
+            finding["disposition"] = disposition
+            count += 1
+        self._write(data)
+        return count
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

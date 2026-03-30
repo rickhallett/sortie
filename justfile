@@ -12,6 +12,10 @@ sortie-status:
 sortie-dispose run_id finding_id disposition:
     uv run python scripts/sortie.py dispose {{run_id}} {{finding_id}} {{disposition}}
 
+# Bulk-dispose all findings in a run
+sortie-dispose-bulk run_id disposition:
+    uv run python scripts/sortie.py dispose-bulk {{run_id}} {{disposition}}
+
 # Run all tests
 test:
     uv run pytest tests/ -v

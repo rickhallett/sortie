@@ -412,6 +412,70 @@ def cmd_dispose(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: dispose-bulk
+# ---------------------------------------------------------------------------
+
+def cmd_dispose_bulk(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
+    """Update the disposition of all findings in a run."""
+    disposition = args.disposition
+    if disposition not in VALID_DISPOSITIONS:
+        print(
+            f"Error: invalid disposition {disposition!r}. "
+            f"Must be one of: {', '.join(sorted(VALID_DISPOSITIONS))}",
+            file=sys.stderr,
+        )
+        return 1
+
+    run_id_str: str = args.run_id
+
+    # Parse run_id into tree_sha and cycle: split on last "-"
+    try:
+        last_dash = run_id_str.rfind("-")
+        if last_dash == -1:
+            raise ValueError("no '-' found")
+        tree_sha = run_id_str[:last_dash]
+        cycle = int(run_id_str[last_dash + 1:])
+    except (ValueError, IndexError) as exc:
+        print(f"Error: cannot parse run_id {run_id_str!r}: {exc}", file=sys.stderr)
+        return 1
+
+    # Locate run directory to update verdict.yaml
+    sortie_dir = _sortie_base_dir(cfg, config_dir)
+    rdir = run_dir(sortie_dir, tree_sha, cycle)
+    verdict_path = os.path.join(rdir, "verdict.yaml")
+
+    if not os.path.isfile(verdict_path):
+        print(f"Error: verdict.yaml not found at {verdict_path}", file=sys.stderr)
+        return 1
+
+    # Update verdict.yaml -- all findings
+    with open(verdict_path, "r") as f:
+        verdict_data = yaml.safe_load(f)
+
+    count = 0
+    for finding in verdict_data.get("findings", []):
+        finding["disposition"] = disposition
+        count += 1
+
+    with open(verdict_path, "w") as f:
+        yaml.dump(verdict_data, f, default_flow_style=False)
+
+    # Update ledger
+    ledger_path = cfg.get("ledger", {}).get("path", ".sortie/ledger.yaml")
+    if not os.path.isabs(ledger_path):
+        ledger_path = os.path.join(config_dir, ledger_path)
+
+    ledger = Ledger(ledger_path)
+    try:
+        ledger.bulk_dispose(tree_sha, cycle, disposition)
+    except ValueError as exc:
+        print(f"Warning: ledger update failed: {exc}", file=sys.stderr)
+
+    print(f"Disposed {count} finding(s) as {disposition!r} in run {run_id_str}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -450,6 +514,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="One of: fixed, false-positive, deferred, disagree",
     )
 
+    # dispose-bulk
+    p_dispose_bulk = sub.add_parser("dispose-bulk", help="Mark all findings in a run with same disposition")
+    p_dispose_bulk.add_argument("run_id", help="Run identifier (tree_sha-cycle)")
+    p_dispose_bulk.add_argument("disposition", help="One of: fixed, false-positive, deferred, disagree")
+
     return parser
 
 
@@ -476,6 +545,7 @@ def main() -> int:
         "pipeline": cmd_pipeline,
         "status": cmd_status,
         "dispose": cmd_dispose,
+        "dispose-bulk": cmd_dispose_bulk,
     }
 
     handler = dispatch.get(args.subcommand)
