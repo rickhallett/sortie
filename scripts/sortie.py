@@ -22,7 +22,7 @@ if _ROOT not in sys.path:
 from scripts.config import load_config, resolve_mode  # noqa: E402
 from scripts.identity import get_tree_sha, next_cycle, run_id, run_dir  # noqa: E402
 from scripts.attestation import write_attestation  # noqa: E402
-from scripts.invoker import invoke_all, _invoke_single, SortieResult  # noqa: E402
+from scripts.invoker import invoke_all, invoke_cli, parse_sortie_output, _invoke_single, SortieResult  # noqa: E402
 from scripts.debrief import build_debrief_prompt, write_verdict  # noqa: E402
 from scripts.triage import triage_verdict  # noqa: E402
 from scripts.ledger import Ledger  # noqa: E402
@@ -189,14 +189,26 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
                 branch=branch,
             )
             debrief_entry = dict(debrief_cfg)
-            # Override command to pipe the prompt via stdin if invoke==cli
+            debrief_entry.setdefault("name", debrief_entry.get("model", "debrief"))
+            # Invoke debrief directly -- the prompt is already assembled
             if debrief_entry.get("invoke") == "cli":
-                debrief_result = _invoke_single(
-                    entry=debrief_entry,
-                    diff=debrief_prompt,
-                    prompt_path=None,
-                    branch=branch,
+                import time as _time
+                _db_start = _time.monotonic()
+                cli_result = invoke_cli(
+                    command=debrief_entry.get("command", ""),
+                    stdin_text=debrief_prompt,
+                    timeout=debrief_entry.get("timeout", 120),
                     cwd=cwd,
+                )
+                _db_elapsed = int((_time.monotonic() - _db_start) * 1000)
+                parsed = parse_sortie_output(cli_result.stdout)
+                debrief_result = SortieResult(
+                    model=debrief_entry.get("name", "debrief"),
+                    verdict=parsed.verdict,
+                    findings=parsed.findings,
+                    wall_time_ms=_db_elapsed,
+                    raw_output=cli_result.stdout,
+                    error=parsed.error,
                 )
             else:
                 # hook-agent or other -- will return error, fall through to fallback
