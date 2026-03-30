@@ -99,10 +99,51 @@ def check_pre_merge(sortie_dir: str, tree_sha: str) -> dict:
     if not isinstance(data, dict):
         return {"ok": False, "reason": "verdict.yaml has unexpected format."}
 
+    # ------------------------------------------------------------------
+    # 5. Verify full tree SHA when present in verdict (trust boundary)
+    # ------------------------------------------------------------------
+    verdict_tree_sha = data.get("tree_sha")
+    if verdict_tree_sha is not None and verdict_tree_sha != tree_sha:
+        return {
+            "ok": False,
+            "reason": (
+                f"Verdict tree SHA mismatch: verdict contains {verdict_tree_sha!r} "
+                f"but current tree is {tree_sha!r}."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # 6. Verify attestations directory exists and is non-empty
+    # ------------------------------------------------------------------
+    attestations_dir = os.path.join(latest_cycle_dir, "attestations")
+    if not os.path.isdir(attestations_dir):
+        return {
+            "ok": False,
+            "reason": (
+                f"No attestations found in {latest_cycle_dir!r}. "
+                "Sortie cycle may be incomplete or tampered with."
+            ),
+        }
+    try:
+        attestation_files = [
+            f for f in os.listdir(attestations_dir)
+            if os.path.isfile(os.path.join(attestations_dir, f))
+        ]
+    except OSError as exc:
+        return {"ok": False, "reason": f"Cannot read attestations dir: {exc}"}
+    if not attestation_files:
+        return {
+            "ok": False,
+            "reason": (
+                f"Attestations directory is empty in {latest_cycle_dir!r}. "
+                "Sortie cycle may be incomplete or tampered with."
+            ),
+        }
+
     verdict = data.get("verdict", "")
 
     # ------------------------------------------------------------------
-    # 5. Evaluate verdict
+    # 7. Evaluate verdict
     # ------------------------------------------------------------------
     if verdict in ("pass", "pass_with_findings"):
         return {

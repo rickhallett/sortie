@@ -1,5 +1,7 @@
 """Tests for the sortie pre-merge hook module."""
 
+import os
+
 import pytest
 import yaml
 from scripts.sortie_hook import check_pre_merge
@@ -9,15 +11,50 @@ from scripts.sortie_hook import check_pre_merge
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_verdict_dir(tmp_path, tree_sha_short: str, cycle: int, verdict: str, findings: list | None = None):
-    """Create .sortie/{tree_sha_short}-{cycle}/verdict.yaml under tmp_path."""
+def make_verdict_dir(tmp_path, tree_sha_short: str, cycle: int, verdict: str, findings: list | None = None, tree_sha: str | None = None, with_attestations: bool = True):
+    """Create .sortie/{tree_sha_short}-{cycle}/verdict.yaml under tmp_path.
+
+    By default also creates a minimal attestations/ subdirectory so that the
+    attestation-existence check in check_pre_merge passes.  Pass
+    ``with_attestations=False`` to omit it (for tests that explicitly probe the
+    missing-attestations path).
+    """
     cycle_dir = tmp_path / f"{tree_sha_short}-{cycle}"
     cycle_dir.mkdir(parents=True, exist_ok=True)
     data: dict = {"verdict": verdict}
     if findings is not None:
         data["findings"] = findings
+    if tree_sha is not None:
+        data["tree_sha"] = tree_sha
     (cycle_dir / "verdict.yaml").write_text(yaml.dump(data))
+    if with_attestations:
+        attestations_dir = cycle_dir / "attestations"
+        attestations_dir.mkdir(exist_ok=True)
+        (attestations_dir / "agent.yaml").write_text("attested: true\n")
     return cycle_dir
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sortie_env(tmp_path):
+    """Set up a minimal sortie environment with a passing verdict."""
+    tree_sha = "abcdef1234567890"
+    tree_sha_short = tree_sha[:8]
+    sortie_dir = tmp_path / ".sortie"
+    sortie_dir.mkdir()
+    cycle_dir = make_verdict_dir(sortie_dir, tree_sha_short, 1, "pass", tree_sha=tree_sha)
+    # make_verdict_dir already creates attestations/agent.yaml by default
+    attestations_dir = cycle_dir / "attestations"
+    return {
+        "sortie_dir": str(sortie_dir),
+        "tree_sha": tree_sha,
+        "tree_sha_short": tree_sha_short,
+        "run_path": str(cycle_dir),
+        "attestations_dir": str(attestations_dir),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -117,3 +154,57 @@ class TestCheckPreMerge:
         # F-006 and F-007 should NOT be in the reason (truncated at 5)
         assert "F-006" not in reason
         assert "F-007" not in reason
+
+    def test_rejects_mismatched_tree_sha(self, sortie_env):
+        """Verdict with wrong tree_sha should be rejected."""
+        verdict = {"verdict": "pass", "findings": [], "tree_sha": "wrong_sha_value"}
+        verdict_path = os.path.join(sortie_env["run_path"], "verdict.yaml")
+        with open(verdict_path, "w") as f:
+            yaml.dump(verdict, f)
+        result = check_pre_merge(
+            sortie_dir=sortie_env["sortie_dir"],
+            tree_sha=sortie_env["tree_sha"],
+        )
+        assert result["ok"] is False
+
+    def test_accepts_matching_full_tree_sha(self, sortie_env):
+        """Verdict with correct full tree_sha should be accepted."""
+        verdict = {"verdict": "pass", "findings": [], "tree_sha": sortie_env["tree_sha"]}
+        verdict_path = os.path.join(sortie_env["run_path"], "verdict.yaml")
+        with open(verdict_path, "w") as f:
+            yaml.dump(verdict, f)
+        result = check_pre_merge(
+            sortie_dir=sortie_env["sortie_dir"],
+            tree_sha=sortie_env["tree_sha"],
+        )
+        assert result["ok"] is True
+
+    def test_missing_attestations_blocks(self, sortie_env):
+        """Verdict without an attestations directory should be rejected."""
+        import shutil
+        shutil.rmtree(sortie_env["attestations_dir"])
+        result = check_pre_merge(
+            sortie_dir=sortie_env["sortie_dir"],
+            tree_sha=sortie_env["tree_sha"],
+        )
+        assert result["ok"] is False
+
+    def test_empty_attestations_blocks(self, sortie_env):
+        """Verdict with an empty attestations directory should be rejected."""
+        # Remove all files in the attestations dir
+        for f in os.listdir(sortie_env["attestations_dir"]):
+            os.remove(os.path.join(sortie_env["attestations_dir"], f))
+        result = check_pre_merge(
+            sortie_dir=sortie_env["sortie_dir"],
+            tree_sha=sortie_env["tree_sha"],
+        )
+        assert result["ok"] is False
+
+    def test_legacy_verdict_without_tree_sha_allowed(self, tmp_path):
+        """Legacy verdict without tree_sha field should still be allowed (backward compat)."""
+        sortie_dir = tmp_path / ".sortie"
+        sortie_dir.mkdir()
+        # No tree_sha in verdict data — legacy format; make_verdict_dir adds attestations by default
+        cycle_dir = make_verdict_dir(sortie_dir, "abcdef12", 1, "pass")
+        result = check_pre_merge(str(sortie_dir), "abcdef1234567890")
+        assert result["ok"] is True
