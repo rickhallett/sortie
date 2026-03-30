@@ -52,27 +52,55 @@ def _sortie_base_dir(cfg: dict, fallback: str) -> str:
     return base
 
 
-def _git_diff(branch: str, cwd: str) -> str:
-    """Return git diff of branch against main (three-dot diff)."""
+def _default_branch(cwd: str) -> str:
+    """Detect the repository's default branch name."""
+    # Try symbolic ref first (works for cloned repos)
     try:
         result = subprocess.run(
-            ["git", "diff", f"main...{branch}"],
+            ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+            capture_output=True, text=True, cwd=cwd,
+        )
+        if result.returncode == 0:
+            # Output like "refs/remotes/origin/main"
+            return result.stdout.strip().rsplit("/", 1)[-1]
+    except Exception:
+        pass
+    # Fallback: check if main exists, then master
+    for branch in ("main", "master"):
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", branch],
+            capture_output=True, text=True, cwd=cwd,
+        )
+        if result.returncode == 0:
+            return branch
+    return "main"  # last resort default
+
+
+def _git_diff(branch: str, cwd: str, base_branch: str | None = None) -> str:
+    """Return git diff of branch against the default branch (three-dot diff)."""
+    if base_branch is None:
+        base_branch = _default_branch(cwd)
+    try:
+        result = subprocess.run(
+            ["git", "diff", f"{base_branch}...{branch}"],
             cwd=cwd,
             capture_output=True,
             text=True,
             check=True,
         )
         return result.stdout
-    except subprocess.CalledProcessError as exc:
+    except subprocess.CalledProcessError:
         # Fall back to empty diff on error (e.g. no git repo in tests)
         return ""
 
 
-def _git_diff_stats(branch: str, cwd: str) -> str:
-    """Return git diff --stat --numstat of branch against main."""
+def _git_diff_stats(branch: str, cwd: str, base_branch: str | None = None) -> str:
+    """Return git diff --stat --numstat of branch against the default branch."""
+    if base_branch is None:
+        base_branch = _default_branch(cwd)
     try:
         result = subprocess.run(
-            ["git", "diff", "--stat", "--numstat", f"main...{branch}"],
+            ["git", "diff", "--stat", "--numstat", f"{base_branch}...{branch}"],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -86,7 +114,24 @@ def _git_diff_stats(branch: str, cwd: str) -> str:
 def _aggregate_fallback(
     sortie_results: dict[str, SortieResult],
 ) -> dict:
-    """Build a fallback verdict by aggregating individual sortie findings."""
+    """Build a fallback verdict by aggregating individual sortie findings.
+
+    Fail-secure: if ALL reviewers errored (or there are no results at all),
+    return an error verdict rather than silently passing -- OWASP fail-secure.
+    """
+    # Fail secure: no results or all results errored -> hard error, not pass.
+    all_errored = not sortie_results or all(
+        (r.error is not None or r.verdict == "error")
+        for r in sortie_results.values()
+    )
+    if all_errored:
+        return {
+            "verdict": "error",
+            "convergence": "none",
+            "findings": [],
+            "error": "All reviewers failed",
+        }
+
     all_findings: list[dict] = []
     for result in sortie_results.values():
         all_findings.extend(result.findings or [])
@@ -239,6 +284,15 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
 
     if debrief_verdict is None:
         debrief_verdict = _aggregate_fallback(sortie_results)
+
+    # Fail-secure: if the verdict is an error (e.g. all reviewers failed),
+    # surface a clear message and exit non-zero immediately -- do not pass
+    # the PR through the gate.
+    if debrief_verdict.get("verdict") == "error":
+        error_msg = debrief_verdict.get("error", "Review pipeline returned error verdict")
+        print(f"ERROR: {error_msg}", file=sys.stderr)
+        print("Pipeline failed: all reviewers errored -- blocking merge (fail-secure)")
+        return 1
 
     # 8. Write verdict.yaml
     verdict_data = {

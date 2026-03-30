@@ -10,6 +10,9 @@ import textwrap
 import pytest
 import yaml
 
+from scripts.invoker import SortieResult
+from scripts.sortie import _aggregate_fallback
+
 
 SCRIPT = os.path.join(os.path.dirname(__file__), "..", "scripts", "sortie.py")
 
@@ -314,3 +317,65 @@ class TestSortieDisposeBulk:
         # Check stdout contains finding count
         output = result.stdout + result.stderr
         assert "3" in output
+
+
+class TestAggregateFallbackFailSecure:
+    """Regression tests for fail-secure behaviour in _aggregate_fallback."""
+
+    def test_aggregate_fallback_all_errors(self):
+        """Pipeline must not pass when all reviewers errored."""
+        results = {
+            "a": SortieResult(model="a", verdict="error", error="fail"),
+            "b": SortieResult(model="b", verdict="error", error="fail"),
+        }
+        fallback = _aggregate_fallback(results)
+        assert fallback["verdict"] != "pass", (
+            "SECURITY: fallback must not pass when all reviewers errored"
+        )
+        assert fallback["verdict"] == "error"
+        assert "error" in fallback
+        assert fallback["error"] == "All reviewers failed"
+
+    def test_aggregate_fallback_all_errors_single_reviewer(self):
+        """Single erroring reviewer must also not produce a pass verdict."""
+        results = {
+            "claude": SortieResult(
+                model="claude",
+                verdict="error",
+                findings=[],
+                error="runtime unavailable",
+            ),
+        }
+        fallback = _aggregate_fallback(results)
+        assert fallback["verdict"] == "error"
+
+    def test_aggregate_fallback_partial_success(self):
+        """If at least one reviewer succeeded, fallback should work normally."""
+        results = {
+            "a": SortieResult(
+                model="a",
+                verdict="pass_with_findings",
+                findings=[
+                    {"id": "f-001", "severity": "major", "file": "x.ts", "line": 1}
+                ],
+            ),
+            "b": SortieResult(model="b", verdict="error", error="fail"),
+        }
+        fallback = _aggregate_fallback(results)
+        assert fallback["verdict"] != "error"
+        assert len(fallback["findings"]) > 0
+
+    def test_aggregate_fallback_no_findings_no_errors(self):
+        """Clean pass (no findings, no errors) should still pass."""
+        results = {
+            "a": SortieResult(model="a", verdict="pass", findings=[]),
+            "b": SortieResult(model="b", verdict="pass", findings=[]),
+        }
+        fallback = _aggregate_fallback(results)
+        assert fallback["verdict"] == "pass"
+
+    def test_aggregate_fallback_empty_results(self):
+        """Empty results dict should also not silently pass."""
+        fallback = _aggregate_fallback({})
+        # No reviewers at all is also a failure condition
+        assert fallback["verdict"] == "error"
