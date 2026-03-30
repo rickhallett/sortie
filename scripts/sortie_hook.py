@@ -15,6 +15,14 @@ from typing import Optional
 import yaml
 
 
+def _cycle_number(dirname: str) -> int:
+    """Extract the numeric cycle suffix from a run directory name."""
+    try:
+        return int(dirname.rsplit("-", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
 def check_pre_merge(sortie_dir: str, tree_sha: str) -> dict:
     """Check whether a passing verdict exists for the given tree SHA.
 
@@ -50,8 +58,9 @@ def check_pre_merge(sortie_dir: str, tree_sha: str) -> dict:
 
     prefix = f"{tree_sha_short}-"
     matching = sorted(
-        entry for entry in entries
-        if entry.startswith(prefix) and os.path.isdir(os.path.join(sortie_dir, entry))
+        (entry for entry in entries
+         if entry.startswith(prefix) and os.path.isdir(os.path.join(sortie_dir, entry))),
+        key=_cycle_number,
     )
 
     if not matching:

@@ -91,6 +91,17 @@ class TestCheckPreMerge:
         result = check_pre_merge(str(sortie_dir), "abcdef1234567890")
         assert result["ok"] is False
 
+    def test_uses_latest_cycle_numerically(self, tmp_path):
+        """Cycle 10 must take precedence over cycle 9 (not lexicographic)."""
+        sortie_dir = tmp_path / ".sortie"
+        sortie_dir.mkdir()
+        # Cycle 9 passes — lexicographic sort would wrongly pick this as "latest"
+        make_verdict_dir(sortie_dir, "abcdef12", 9, "pass")
+        # Cycle 10 fails — numerically newer, must win
+        make_verdict_dir(sortie_dir, "abcdef12", 10, "fail", [{"id": "v-001", "severity": "major"}])
+        result = check_pre_merge(str(sortie_dir), "abcdef1234567890")
+        assert result["ok"] is False  # cycle 10 (fail) must win over cycle 9 (pass)
+
     def test_findings_included_in_fail_reason(self, tmp_path):
         """Up to 5 findings should appear in the reason when verdict is fail."""
         sortie_dir = tmp_path / ".sortie"
