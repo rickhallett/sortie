@@ -157,7 +157,7 @@ prompts/             Markdown review prompts (code, tests, docs, debrief)
 
 - [Eval plan](docs/eval-plan.md) -- 10 evals covering auth, concurrency, money, I/O, security, state, time, and distributed systems
 - [Eval 001: pidgeon-swarm](docs/eval-001-pidgeon-swarm.md) -- carrier integration service. 6 runs, 26 findings, 6 fix commits, zero human intervention.
-- Eval 002: rate limiter -- in progress
+- [Eval 002: rate limiter](docs/eval-002-rate-limiter.md) -- concurrency + time handling. Claude 100%, Codex 50%, Gemini 0%. 10 findings, 0 convergent (model reliability bottleneck).
 
 ## Prior art
 
