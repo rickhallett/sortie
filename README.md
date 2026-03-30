@@ -155,7 +155,9 @@ prompts/             Markdown review prompts (code, tests, docs, debrief)
 
 ## Evaluations
 
-- [Eval 001: pidgeon-swarm](docs/eval-001-pidgeon-swarm.md) -- first full swarm build with sortie gating. 6 runs, 26 findings, 6 fix commits, zero human intervention. 99 tests passing.
+- [Eval plan](docs/eval-plan.md) -- 10 evals covering auth, concurrency, money, I/O, security, state, time, and distributed systems
+- [Eval 001: pidgeon-swarm](docs/eval-001-pidgeon-swarm.md) -- carrier integration service. 6 runs, 26 findings, 6 fix commits, zero human intervention.
+- Eval 002: rate limiter -- in progress
 
 ## Prior art
 
