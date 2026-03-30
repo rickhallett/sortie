@@ -153,6 +153,11 @@ prompts/             Markdown review prompts (code, tests, docs, debrief)
 
 106 tests, all passing. Integration smoke test validates the full pipeline end-to-end with echo-based CLI stubs.
 
+## Prior art
+
+- [Research: academic papers and empirical findings](docs/research.md) -- 30+ papers on cross-model verification, LLM-as-judge for code, multi-agent debate, and consensus mechanisms
+- [Landscape: repos and tools](docs/landscape.md) -- 40+ catalogued tools implementing adversarial or multi-model review patterns
+
 ## Lineage
 
 Reimplements the gauntlet verification pipeline from [thepit](https://github.com/rickhallett/thepit) for async Claude Code Teams swarm context. Clean-room implementation of proven protocols, not a fork.
