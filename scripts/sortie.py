@@ -154,8 +154,21 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
     cwd = os.getcwd()
 
     # 1. Diff
-    diff = _git_diff(branch, cwd)
-    diff_stats = _git_diff_stats(branch, cwd)
+    base_branch = cfg.get("base_branch") or _default_branch(cwd)
+    diff = _git_diff(branch, cwd, base_branch=base_branch)
+    if not diff.strip():
+        # Verify the branch actually exists before treating empty diff as no-op
+        branch_check = subprocess.run(
+            ["git", "rev-parse", "--verify", branch],
+            capture_output=True, text=True, cwd=cwd,
+        )
+        if branch_check.returncode != 0:
+            print(f"Error: branch {branch!r} not found", file=sys.stderr)
+            return 1
+        # Branch exists but no diff -- could be already merged or diff failure
+        print(f"Warning: empty diff for branch {branch}. Nothing to review.")
+        return 0
+    diff_stats = _git_diff_stats(branch, cwd, base_branch=base_branch)
 
     # 2. Identity
     try:

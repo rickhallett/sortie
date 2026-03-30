@@ -10,8 +10,10 @@ import textwrap
 import pytest
 import yaml
 
+from unittest.mock import patch, MagicMock
+
 from scripts.invoker import SortieResult
-from scripts.sortie import _aggregate_fallback
+from scripts.sortie import _aggregate_fallback, _default_branch, _git_diff
 
 
 SCRIPT = os.path.join(os.path.dirname(__file__), "..", "scripts", "sortie.py")
@@ -379,3 +381,81 @@ class TestAggregateFallbackFailSecure:
         fallback = _aggregate_fallback({})
         # No reviewers at all is also a failure condition
         assert fallback["verdict"] == "error"
+
+
+class TestDefaultBranchDetection:
+    """Tests for _default_branch() helper."""
+
+    def _make_run_result(self, returncode: int, stdout: str = "") -> MagicMock:
+        result = MagicMock()
+        result.returncode = returncode
+        result.stdout = stdout
+        return result
+
+    def test_uses_symbolic_ref_when_available(self, tmp_path):
+        """When symbolic-ref succeeds, the branch name is extracted from the ref."""
+        with patch("scripts.sortie.subprocess.run") as mock_run:
+            mock_run.return_value = self._make_run_result(
+                0, "refs/remotes/origin/main\n"
+            )
+            result = _default_branch(str(tmp_path))
+        assert result == "main"
+
+    def test_uses_symbolic_ref_non_main_branch(self, tmp_path):
+        """When the default branch is 'master', symbolic-ref returns it correctly."""
+        with patch("scripts.sortie.subprocess.run") as mock_run:
+            mock_run.return_value = self._make_run_result(
+                0, "refs/remotes/origin/master\n"
+            )
+            result = _default_branch(str(tmp_path))
+        assert result == "master"
+
+    def test_uses_symbolic_ref_trunk_branch(self, tmp_path):
+        """When the default branch is 'trunk', symbolic-ref returns it correctly."""
+        with patch("scripts.sortie.subprocess.run") as mock_run:
+            mock_run.return_value = self._make_run_result(
+                0, "refs/remotes/origin/trunk\n"
+            )
+            result = _default_branch(str(tmp_path))
+        assert result == "trunk"
+
+    def test_falls_back_to_main_rev_parse_when_no_symbolic_ref(self, tmp_path):
+        """When symbolic-ref fails, falls back to checking 'main' via rev-parse."""
+        symbolic_ref_fail = self._make_run_result(1)
+        main_exists = self._make_run_result(0)
+
+        with patch("scripts.sortie.subprocess.run") as mock_run:
+            mock_run.side_effect = [symbolic_ref_fail, main_exists]
+            result = _default_branch(str(tmp_path))
+        assert result == "main"
+
+    def test_falls_back_to_master_when_main_absent(self, tmp_path):
+        """When symbolic-ref fails and 'main' doesn't exist, falls back to 'master'."""
+        symbolic_ref_fail = self._make_run_result(1)
+        main_missing = self._make_run_result(1)
+        master_exists = self._make_run_result(0)
+
+        with patch("scripts.sortie.subprocess.run") as mock_run:
+            mock_run.side_effect = [symbolic_ref_fail, main_missing, master_exists]
+            result = _default_branch(str(tmp_path))
+        assert result == "master"
+
+    def test_last_resort_default_is_main(self, tmp_path):
+        """When all detection fails, returns 'main' as a last resort."""
+        all_fail = self._make_run_result(1)
+
+        with patch("scripts.sortie.subprocess.run") as mock_run:
+            mock_run.return_value = all_fail
+            result = _default_branch(str(tmp_path))
+        assert result == "main"
+
+    def test_git_diff_uses_detected_base_branch(self, tmp_path):
+        """_git_diff passes the detected base branch to git diff."""
+        diff_output = "diff --git a/foo.py b/foo.py\n+new line\n"
+        with patch("scripts.sortie.subprocess.run") as mock_run:
+            mock_run.return_value = self._make_run_result(0, diff_output)
+            result = _git_diff("feature/x", str(tmp_path), base_branch="master")
+        # Verify the git command used master not main
+        call_args = mock_run.call_args[0][0]
+        assert "master...feature/x" in call_args
+        assert result == diff_output
