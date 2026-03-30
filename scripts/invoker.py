@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -304,12 +305,26 @@ def invoke_all(
             else:
                 stdin_text = None
 
-            cli_result = invoke_cli(
-                command=command,
-                stdin_text=stdin_text,
-                timeout=entry.get("timeout", 120),
-                cwd=cwd,
-            )
+            if stdin_text is not None:
+                tmp_fd, tmp_path = tempfile.mkstemp(prefix='sortie-prompt-', suffix='.md')
+                try:
+                    with os.fdopen(tmp_fd, 'w') as tmp_f:
+                        tmp_f.write(stdin_text)
+                    cli_result = invoke_cli(
+                        command=f"{command} < {tmp_path}",
+                        stdin_text=None,
+                        timeout=entry.get("timeout", 120),
+                        cwd=cwd,
+                    )
+                finally:
+                    os.unlink(tmp_path)
+            else:
+                cli_result = invoke_cli(
+                    command=command,
+                    stdin_text=None,
+                    timeout=entry.get("timeout", 120),
+                    cwd=cwd,
+                )
             elapsed_ms = int((time.monotonic() - t_start) * 1000)
 
             if cli_result.timed_out:

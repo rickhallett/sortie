@@ -375,3 +375,38 @@ class TestExtractTokenCounts:
     def test_malformed_returns_empty(self):
         result = extract_token_counts('tokens used\nnot-a-number', '', 'codex')
         assert result == {}
+
+
+class TestTempFileDelivery:
+    def test_large_prompt_delivered(self, tmp_path):
+        """A large prompt should still be delivered successfully."""
+        from scripts.invoker import invoke_all
+        prompt_file = tmp_path / "prompt.md"
+        prompt_file.write_text("Review {branch}:\n")
+        large_diff = "+" * 300000
+        roster = [{
+            "name": "cat-stub",
+            "invoke": "cli",
+            "command": "wc -c",
+            "prompt": str(prompt_file),
+            "timeout": 10,
+        }]
+        results = invoke_all(roster=roster, diff=large_diff, prompt_path=None, branch="test", cwd=str(tmp_path))
+        result = results["cat-stub"]
+        assert result.raw_output.strip() != ""
+        # wc -c should report a large byte count
+        assert int(result.raw_output.strip()) > 200000
+
+    def test_no_temp_file_leaked(self, tmp_path):
+        """Temp files should be cleaned up."""
+        import glob
+        from scripts.invoker import invoke_all
+        prompt_file = tmp_path / "prompt.md"
+        prompt_file.write_text("Review {branch}:\n")
+        before = set(glob.glob("/tmp/sortie-prompt-*"))
+        invoke_all(
+            roster=[{"name": "cat-stub", "invoke": "cli", "command": "cat", "prompt": str(prompt_file), "timeout": 10}],
+            diff="small", prompt_path=None, branch="test", cwd=str(tmp_path),
+        )
+        after = set(glob.glob("/tmp/sortie-prompt-*"))
+        assert after == before
