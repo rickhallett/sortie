@@ -20,6 +20,7 @@ class TriageResult:
     exit_code: int
     blocking_findings: list[dict] = field(default_factory=list)
     advisory_findings: list[dict] = field(default_factory=list)
+    all_clear_warning: str | None = None
 
 
 def triage_verdict(verdict: dict, triage_cfg: dict) -> TriageResult:
@@ -73,4 +74,8 @@ def triage_verdict(verdict: dict, triage_cfg: dict) -> TriageResult:
             advisory_findings=advisory,
         )
 
-    return TriageResult(action="merge", exit_code=0)
+    return TriageResult(
+        action="merge",
+        exit_code=0,
+        all_clear_warning="All models returned zero findings. Consider manual review.",
+    )

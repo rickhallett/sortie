@@ -88,3 +88,34 @@ class TestTriageVerdict:
         # Both non-blocking findings end up as advisory
         assert advisory_convergent in result.advisory_findings
         assert advisory_divergent in result.advisory_findings
+
+
+class TestAntiRubberStamp:
+    def test_all_clear_warning_when_no_findings(self):
+        verdict = {"verdict": "pass", "findings": []}
+        triage_cfg = {"block_on": ["critical", "major"], "convergence_threshold": 2}
+        result = triage_verdict(verdict, triage_cfg)
+        assert result.all_clear_warning is not None
+        assert "zero findings" in result.all_clear_warning.lower()
+
+    def test_no_warning_when_findings_exist(self):
+        verdict = {
+            "verdict": "pass_with_findings",
+            "findings": [
+                {"id": "v-001", "severity": "minor", "convergence": "divergent"},
+            ],
+        }
+        triage_cfg = {"block_on": ["critical", "major"], "convergence_threshold": 2}
+        result = triage_verdict(verdict, triage_cfg)
+        assert result.all_clear_warning is None
+
+    def test_no_warning_when_blocking_findings(self):
+        verdict = {
+            "verdict": "fail",
+            "findings": [
+                {"id": "v-001", "severity": "major", "convergent": True},
+            ],
+        }
+        triage_cfg = {"block_on": ["critical", "major"], "convergence_threshold": 2}
+        result = triage_verdict(verdict, triage_cfg)
+        assert result.all_clear_warning is None

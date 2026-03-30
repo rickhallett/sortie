@@ -295,6 +295,9 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
     if triage_result.blocking_findings:
         print(f"Blocking: {len(triage_result.blocking_findings)} finding(s)")
 
+    if triage_result.all_clear_warning:
+        print(f"Warning: {triage_result.all_clear_warning}")
+
     return triage_result.exit_code
 
 
