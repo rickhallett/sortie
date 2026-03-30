@@ -7,6 +7,8 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
+import time
 
 import yaml
 
@@ -138,6 +140,7 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
         prompt_path = os.path.join(config_dir, prompt_path)
 
     # 5. Invoke all roster models in parallel
+    pipeline_start = time.monotonic()
     sortie_results = invoke_all(
         roster=roster,
         diff=diff,
@@ -192,15 +195,20 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
             debrief_entry.setdefault("name", debrief_entry.get("model", "debrief"))
             # Invoke debrief directly -- the prompt is already assembled
             if debrief_entry.get("invoke") == "cli":
-                import time as _time
-                _db_start = _time.monotonic()
-                cli_result = invoke_cli(
-                    command=debrief_entry.get("command", ""),
-                    stdin_text=debrief_prompt,
-                    timeout=debrief_entry.get("timeout", 120),
-                    cwd=cwd,
-                )
-                _db_elapsed = int((_time.monotonic() - _db_start) * 1000)
+                _db_start = time.monotonic()
+                tmp_fd, tmp_path_file = tempfile.mkstemp(prefix='sortie-debrief-', suffix='.md')
+                try:
+                    with os.fdopen(tmp_fd, 'w') as tmp_f:
+                        tmp_f.write(debrief_prompt)
+                    cli_result = invoke_cli(
+                        command=f"{debrief_entry.get('command', '')} < {tmp_path_file}",
+                        stdin_text=None,
+                        timeout=debrief_entry.get("timeout", 120),
+                        cwd=cwd,
+                    )
+                finally:
+                    os.unlink(tmp_path_file)
+                _db_elapsed = int((time.monotonic() - _db_start) * 1000)
                 parsed = parse_sortie_output(sanitize_output(cli_result.stdout))
                 debrief_result = SortieResult(
                     model=debrief_entry.get("name", "debrief"),
@@ -267,6 +275,7 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
     triage_result = triage_verdict(verdict_data, triage_cfg)
 
     # 11. Append to ledger
+    pipeline_wall_ms = int((time.monotonic() - pipeline_start) * 1000)
     ledger_path = cfg.get("ledger", {}).get("path", ".sortie/ledger.yaml")
     if not os.path.isabs(ledger_path):
         ledger_path = os.path.join(config_dir, ledger_path)
@@ -282,6 +291,15 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
         "findings": verdict_data.get("findings", []),
         "worker_branch": branch,
         "diff_stats": diff_stats,
+        "wall_time_ms": pipeline_wall_ms,
+        "tokens": {
+            "by_model": {
+                name: dict(result.tokens) for name, result in sortie_results.items()
+            },
+            "total": sum(
+                sum(r.tokens.values()) for r in sortie_results.values()
+            ),
+        },
     })
 
     # 12. Print summary
