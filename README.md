@@ -153,6 +153,10 @@ prompts/             Markdown review prompts (code, tests, docs, debrief)
 
 106 tests, all passing. Integration smoke test validates the full pipeline end-to-end with echo-based CLI stubs.
 
+## Evaluations
+
+- [Eval 001: pidgeon-swarm](docs/eval-001-pidgeon-swarm.md) -- first full swarm build with sortie gating. 6 runs, 26 findings, 6 fix commits, zero human intervention. 99 tests passing.
+
 ## Prior art
 
 - [Research: academic papers and empirical findings](docs/research.md) -- 30+ papers on cross-model verification, LLM-as-judge for code, multi-agent debate, and consensus mechanisms
