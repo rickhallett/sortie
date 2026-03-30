@@ -11,3 +11,5 @@ __pycache__/
 # Environment
 .env
 .env.local
+README.md
+main.py
