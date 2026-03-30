@@ -16,6 +16,14 @@ sortie-dispose run_id finding_id disposition:
 sortie-dispose-bulk run_id disposition:
     uv run python scripts/sortie.py dispose-bulk {{run_id}} {{disposition}}
 
+# Analyze ledger data (accepts multiple ledger paths for cross-eval)
+analyze +ledgers:
+    uv run python scripts/analyze.py {{ledgers}}
+
+# Analyze ledger data as YAML
+analyze-yaml +ledgers:
+    uv run python scripts/analyze.py --json {{ledgers}}
+
 # Run all tests
 test:
     uv run pytest tests/ -v

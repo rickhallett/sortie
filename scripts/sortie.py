@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 
 import yaml
 
@@ -347,17 +348,56 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
     if not os.path.isabs(ledger_path):
         ledger_path = os.path.join(config_dir, ledger_path)
     ledger = Ledger(ledger_path)
+    # Build per-model status summary for the ledger
+    model_status = {}
+    for name, result in sortie_results.items():
+        model_status[name] = {
+            "verdict": result.verdict,
+            "error": result.error,
+            "findings_count": len(result.findings or []),
+            "wall_time_ms": result.wall_time_ms,
+            "tokens": dict(result.tokens) if result.tokens else {},
+        }
+
+    # Parse diff_stats into structured form
+    parsed_diff_stats = diff_stats
+    if isinstance(diff_stats, str):
+        lines = diff_stats.strip().split("\n")
+        files_changed = 0
+        insertions = 0
+        deletions = 0
+        for line in lines:
+            parts = line.split("\t")
+            if len(parts) == 3:
+                try:
+                    insertions += int(parts[0])
+                    deletions += int(parts[1])
+                    files_changed += 1
+                except ValueError:
+                    pass
+        parsed_diff_stats = {
+            "files": files_changed,
+            "insertions": insertions,
+            "deletions": deletions,
+            "raw": diff_stats,
+        }
+
     ledger.append({
         "run_id": rid,
         "tree_sha": tree_sha,
         "cycle": cycle,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "project": os.path.basename(cwd),
         "branch": branch,
+        "worker_branch": branch,
         "mode": args.mode,
         "verdict": verdict_data.get("verdict", ""),
         "convergence": verdict_data.get("convergence", ""),
+        "debrief_model": cfg.get("debrief", {}).get("model", "unknown"),
+        "roster_used": [r["name"] for r in roster],
+        "model_status": model_status,
         "findings": verdict_data.get("findings", []),
-        "worker_branch": branch,
-        "diff_stats": diff_stats,
+        "diff_stats": parsed_diff_stats,
         "wall_time_ms": pipeline_wall_ms,
         "tokens": {
             "by_model": {
