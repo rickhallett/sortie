@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import yaml
+
+# ---------------------------------------------------------------------------
+# Output sanitization patterns
+# ---------------------------------------------------------------------------
+
+_CLI_NOISE_PATTERNS: list[re.Pattern] = [
+    re.compile(r"^mcp startup:.*$", re.MULTILINE),
+    re.compile(r"^codex$", re.MULTILINE),
+    re.compile(r"^tokens used$", re.MULTILINE),
+    re.compile(r"^\d[\d,]*$", re.MULTILINE),
+    re.compile(r"^OpenAI Codex v.*$", re.MULTILINE),
+    re.compile(r'^Skill ".*" from ".*" is overriding.*$', re.MULTILINE),
+]
+
+_FENCE_RE: re.Pattern = re.compile(
+    r"^```(?:yaml|YAML)?\n(.*?)\n?```",
+    re.DOTALL | re.MULTILINE,
+)
 
 
 @dataclass
@@ -48,6 +68,39 @@ class SortieResult:
     wall_time_ms: int = 0
     raw_output: str = ""
     error: str | None = None
+
+
+def sanitize_output(raw: str) -> str:
+    """Strip markdown fences and CLI noise from model output before YAML parsing.
+
+    Args:
+        raw: Raw string output from the model CLI invocation.
+
+    Returns:
+        Cleaned string suitable for YAML parsing, or the original string if
+        stripping would produce an empty result.
+    """
+    text = raw.strip()
+
+    # Try to extract content from a markdown fence
+    match = _FENCE_RE.search(text)
+    if match:
+        text = match.group(1).strip()
+
+    # Strip CLI noise lines
+    for pattern in _CLI_NOISE_PATTERNS:
+        text = pattern.sub("", text)
+
+    # Collapse triple+ blank lines into at most one blank line
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    text = text.strip()
+
+    # If stripping produced empty output, return the original
+    if not text:
+        return raw
+
+    return text
 
 
 def build_prompt(prompt_path: str, diff: str, branch: str = "") -> str:
@@ -227,7 +280,7 @@ def invoke_all(
                 )
 
             raw = cli_result.stdout
-            result = parse_sortie_output(raw)
+            result = parse_sortie_output(sanitize_output(raw))
             result.model = result.model or name
             result.wall_time_ms = elapsed_ms
             result.raw_output = raw

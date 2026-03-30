@@ -8,6 +8,7 @@ from scripts.invoker import (
     SortieResult,
     build_prompt,
     parse_sortie_output,
+    sanitize_output,
     invoke_cli,
     invoke_all,
 )
@@ -274,3 +275,75 @@ class TestInvokeAll:
         )
 
         assert results["timed"].wall_time_ms >= 0
+
+
+class TestSanitizeOutput:
+    def test_strips_markdown_yaml_fence(self):
+        raw = "```yaml\nverdict: pass\nfindings: []\n```"
+        result = sanitize_output(raw)
+        assert result.strip() == "verdict: pass\nfindings: []"
+
+    def test_strips_bare_markdown_fence(self):
+        raw = "```\nverdict: pass\nfindings: []\n```"
+        result = sanitize_output(raw)
+        assert result.strip() == "verdict: pass\nfindings: []"
+
+    def test_strips_uppercase_yaml_fence(self):
+        raw = "```YAML\nverdict: pass\nfindings: []\n```"
+        result = sanitize_output(raw)
+        assert result.strip() == "verdict: pass\nfindings: []"
+
+    def test_strips_codex_status_lines(self):
+        raw = (
+            "mcp startup: initialized\n"
+            "codex\n"
+            "tokens used\n"
+            "1,234\n"
+            "verdict: pass\n"
+            "findings: []\n"
+        )
+        result = sanitize_output(raw)
+        assert "mcp startup" not in result
+        assert "tokens used" not in result
+        assert "1,234" not in result
+        assert "verdict: pass" in result
+
+    def test_strips_codex_version_line(self):
+        raw = "OpenAI Codex v1.2.3\nverdict: pass\nfindings: []\n"
+        result = sanitize_output(raw)
+        assert "OpenAI Codex" not in result
+        assert "verdict: pass" in result
+
+    def test_strips_leading_trailing_whitespace(self):
+        raw = "  \n\nverdict: pass\nfindings: []\n\n  "
+        result = sanitize_output(raw)
+        assert result == result.strip()
+
+    def test_passthrough_clean_yaml_unchanged(self):
+        raw = "verdict: pass\nfindings: []\n"
+        result = sanitize_output(raw)
+        assert "verdict: pass" in result
+        assert "findings: []" in result
+
+    def test_empty_after_strip_returns_original(self):
+        raw = "```yaml\n```"
+        result = sanitize_output(raw)
+        # Content inside fence is empty; should return original rather than empty string
+        assert result == raw
+
+    def test_extracts_yaml_from_mixed_content_with_fences(self):
+        raw = (
+            "Here is my analysis:\n"
+            "```yaml\n"
+            "verdict: fail\n"
+            "findings:\n"
+            "  - severity: critical\n"
+            "    message: SQL injection\n"
+            "```\n"
+            "Let me know if you need more details.\n"
+        )
+        result = sanitize_output(raw)
+        assert "verdict: fail" in result
+        assert "SQL injection" in result
+        assert "Here is my analysis" not in result
+        assert "Let me know" not in result

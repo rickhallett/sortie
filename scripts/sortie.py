@@ -22,7 +22,7 @@ if _ROOT not in sys.path:
 from scripts.config import load_config, resolve_mode  # noqa: E402
 from scripts.identity import get_tree_sha, next_cycle, run_id, run_dir  # noqa: E402
 from scripts.attestation import write_attestation  # noqa: E402
-from scripts.invoker import invoke_all, invoke_cli, parse_sortie_output, _invoke_single, SortieResult  # noqa: E402
+from scripts.invoker import invoke_all, invoke_cli, parse_sortie_output, sanitize_output, _invoke_single, SortieResult  # noqa: E402
 from scripts.debrief import build_debrief_prompt, write_verdict  # noqa: E402
 from scripts.triage import triage_verdict  # noqa: E402
 from scripts.ledger import Ledger  # noqa: E402
@@ -201,7 +201,7 @@ def cmd_pipeline(args: argparse.Namespace, cfg: dict, config_dir: str) -> int:
                     cwd=cwd,
                 )
                 _db_elapsed = int((_time.monotonic() - _db_start) * 1000)
-                parsed = parse_sortie_output(cli_result.stdout)
+                parsed = parse_sortie_output(sanitize_output(cli_result.stdout))
                 debrief_result = SortieResult(
                     model=debrief_entry.get("name", "debrief"),
                     verdict=parsed.verdict,
