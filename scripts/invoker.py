@@ -29,6 +29,10 @@ _FENCE_RE: re.Pattern = re.compile(
     re.DOTALL | re.MULTILINE,
 )
 
+_CODEX_TOKENS_RE = re.compile(r'tokens used\s*\n([\d,]+)', re.IGNORECASE)
+_CLAUDE_INPUT_RE = re.compile(r'[Ii]nput tokens?:\s*([\d,]+)')
+_CLAUDE_OUTPUT_RE = re.compile(r'[Oo]utput tokens?:\s*([\d,]+)')
+
 
 @dataclass
 class CliResult:
@@ -101,6 +105,44 @@ def sanitize_output(raw: str) -> str:
         return raw
 
     return text
+
+
+def extract_token_counts(stdout: str, stderr: str, model: str) -> dict[str, int]:
+    """Best-effort extraction of token counts from raw CLI output.
+
+    Must be called BEFORE sanitize_output, as sanitization strips the token lines.
+
+    Args:
+        stdout: Raw standard output from the CLI invocation.
+        stderr: Raw standard error from the CLI invocation.
+        model: Model/entry name (unused currently, reserved for future routing).
+
+    Returns:
+        A dict with token counts, e.g. {"total": N} or
+        {"prompt": N, "completion": M, "total": N+M}, or {} if nothing parseable.
+    """
+    # Codex pattern: "tokens used\nN,NNN" in stdout
+    codex_match = _CODEX_TOKENS_RE.search(stdout)
+    if codex_match:
+        try:
+            total = int(codex_match.group(1).replace(",", ""))
+            return {"total": total}
+        except ValueError:
+            pass
+
+    # Claude pattern: "Input tokens: N" / "Output tokens: N" in combined output
+    combined = stdout + "\n" + stderr
+    input_match = _CLAUDE_INPUT_RE.search(combined)
+    output_match = _CLAUDE_OUTPUT_RE.search(combined)
+    if input_match or output_match:
+        try:
+            prompt = int(input_match.group(1).replace(",", "")) if input_match else 0
+            completion = int(output_match.group(1).replace(",", "")) if output_match else 0
+            return {"prompt": prompt, "completion": completion, "total": prompt + completion}
+        except ValueError:
+            pass
+
+    return {}
 
 
 def build_prompt(prompt_path: str, diff: str, branch: str = "") -> str:
@@ -280,10 +322,13 @@ def invoke_all(
                 )
 
             raw = cli_result.stdout
+            tokens = extract_token_counts(raw, cli_result.stderr, name)
             result = parse_sortie_output(sanitize_output(raw))
             result.model = result.model or name
             result.wall_time_ms = elapsed_ms
             result.raw_output = raw
+            if tokens:
+                result.tokens = tokens
             return name, result
 
         # Unknown invoke type

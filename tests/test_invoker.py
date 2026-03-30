@@ -11,6 +11,7 @@ from scripts.invoker import (
     sanitize_output,
     invoke_cli,
     invoke_all,
+    extract_token_counts,
 )
 
 
@@ -347,3 +348,30 @@ class TestSanitizeOutput:
         assert "SQL injection" in result
         assert "Here is my analysis" not in result
         assert "Let me know" not in result
+
+
+class TestExtractTokenCounts:
+    def test_codex_stdout_tokens(self):
+        stdout = 'findings: []\nverdict: pass\ntokens used\n2,079'
+        result = extract_token_counts(stdout, '', 'codex')
+        assert result.get('total') == 2079
+
+    def test_codex_no_commas(self):
+        stdout = 'findings: []\nverdict: pass\ntokens used\n500'
+        result = extract_token_counts(stdout, '', 'codex')
+        assert result.get('total') == 500
+
+    def test_claude_stderr_tokens(self):
+        stderr = 'Input tokens: 1500\nOutput tokens: 300'
+        result = extract_token_counts('', stderr, 'claude')
+        assert result.get('prompt') == 1500
+        assert result.get('completion') == 300
+        assert result.get('total') == 1800
+
+    def test_no_tokens_returns_empty(self):
+        result = extract_token_counts('findings: []\nverdict: pass', '', 'gemini')
+        assert result == {}
+
+    def test_malformed_returns_empty(self):
+        result = extract_token_counts('tokens used\nnot-a-number', '', 'codex')
+        assert result == {}
