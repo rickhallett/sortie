@@ -1,0 +1,69 @@
+# sortie.yaml -- Sortie configuration
+# See docs/superpowers/specs/2026-03-30-sortie-design.md for full reference.
+
+roster:
+  - name: claude
+    invoke: hook-agent
+    prompt: prompts/sortie-code.md
+    timeout: 180
+
+  - name: codex
+    invoke: cli
+    command: "codex exec review --uncommitted"
+    timeout: 180
+
+  - name: gemini
+    invoke: cli
+    command: "gemini -p"
+    prompt: prompts/sortie-code.md
+    output_format: json
+    timeout: 180
+
+debrief:
+  model: claude
+  invoke: hook-agent
+  prompt: prompts/debrief.md
+  timeout: 120
+
+triage:
+  block_on:
+    - critical
+    - major
+  max_remediation_cycles: 2
+  convergence_threshold: 2
+
+modes:
+  code:
+    prompt: prompts/sortie-code.md
+    trigger: merge
+    roster: [claude, codex, gemini]
+    triage:
+      block_on: [critical, major]
+
+  tests:
+    prompt: prompts/sortie-tests.md
+    trigger: milestone
+    roster: [claude, gemini]
+    triage:
+      block_on: [critical]
+
+  docs:
+    prompt: prompts/sortie-docs.md
+    trigger: milestone
+    roster: [claude]
+    triage:
+      block_on: []
+
+ledger:
+  path: .sortie/ledger.yaml
+  capture:
+    - findings
+    - convergence
+    - tokens
+    - wall_time
+    - diff_stats
+    - disposition
+
+deposition:
+  dir: .sortie/{tree_sha}-{cycle}/
+  keep_individual: true

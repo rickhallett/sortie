@@ -1,0 +1,13 @@
+# Sortie runtime artifacts (except ledger)
+# Individual run directories are gitignored; ledger.yaml is tracked
+.sortie/*/
+!.sortie/ledger.yaml
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment
+.env
+.env.local
