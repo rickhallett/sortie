@@ -1,14 +1,37 @@
 # Sortie
 
-Async adversarial multi-model code review for Claude Code Teams swarm workflows.
+Sortie is a multi-model review harness for AI-generated code changes.
 
-Sortie runs a configurable roster of language models (Claude, Codex, Gemini) against a worker's diff at merge boundary, synthesizes findings through a debrief invocation, triages by severity, and gates worktree merges. All findings, dispositions, and cost data are captured in a structured ledger.
+It runs independent reviews from Claude, Codex, and Gemini against the same diff, synthesizes their findings, applies severity-based merge gating, and records every result in an auditable ledger.
+
+Sortie exists to answer four production questions:
+
+- How do we evaluate AI-generated changes before merge?
+- What happens when reviewers disagree?
+- Where is the trust boundary?
+- What does verification cost?
+
+## What It Proves
+
+Sortie demonstrates practical AI systems engineering:
+
+- Evaluation harness design
+- Cross-model verification
+- Failure triage and merge gating
+- Traceable audit records
+- Token and cost accounting
+
+This is not a chat wrapper. It is a controlled review system for measuring the quality of AI-assisted engineering work.
 
 ## Why
 
-There are many AI demos and many AI wrappers. There are far fewer systems that visibly answer: how is agent output evaluated? What happens when agents fail? What is the trust boundary? What does this cost?
+Most AI coding workflows have a weak verification story. A model proposes a change, a human skims it, and trust leaks across the boundary.
 
-Sortie is an instrumented environment where the quality of agentic work is measurable.
+Sortie makes that boundary explicit.
+
+Each reviewer sees the same diff independently. A debrief step synthesizes the review outputs. Convergent findings raise confidence. Divergent findings are preserved as evidence, but do not block by default. Every run records findings, verdicts, dispositions, and token cost in a structured ledger.
+
+The result is a review pipeline that is measurable, auditable, and fail-closed by design.
 
 ### Design principles
 
@@ -45,6 +68,13 @@ Each model reviews the diff independently. The debrief model triangulates findin
 
 - **Convergent** (2+ models found it): high confidence, blocks merge if severity warrants
 - **Divergent** (1 model only): logged, never blocks, valuable for evaluating model priors over time
+
+## Architecture Decisions
+
+- Independent reviewers do not share context
+- Divergent findings are logged, not blocking
+- Convergence increases confidence, not truth
+- The ledger is append-only and tied to run identity
 
 ## Quick start
 
@@ -117,8 +147,6 @@ Every run appends to `.sortie/ledger.yaml` (tracked in git). Captures: findings,
 
 ## Core protocols
 
-Ported from [thepit's gauntlet](https://github.com/rickhallett/thepit):
-
 - **Tree hash identity**: `git write-tree` keys artifacts to staged content, not commit SHA
 - **Attestation model**: each step writes YAML attestation, verified before merge
 - **Convergence analysis**: debrief maps findings across models, scores by agreement
@@ -159,11 +187,11 @@ prompts/             Markdown review prompts (code, tests, docs, debrief)
 - [Eval 001: pidgeon-swarm](docs/eval-001-pidgeon-swarm.md) -- carrier integration service. 6 runs, 26 findings, 6 fix commits, zero human intervention.
 - [Eval 002: rate limiter](docs/eval-002-rate-limiter.md) -- concurrency + time handling. Claude 100%, Codex 50%, Gemini 0%. 10 findings, 0 convergent (model reliability bottleneck).
 
-## Prior art
+## Design Basis
 
 - [Research: academic papers and empirical findings](docs/research.md) -- 30+ papers on cross-model verification, LLM-as-judge for code, multi-agent debate, and consensus mechanisms
 - [Landscape: repos and tools](docs/landscape.md) -- 40+ catalogued tools implementing adversarial or multi-model review patterns
 
 ## Lineage
 
-Reimplements the gauntlet verification pipeline from [thepit](https://github.com/rickhallett/thepit) for async Claude Code Teams swarm context. Clean-room implementation of proven protocols, not a fork.
+Reimplements the gauntlet verification pipeline from [thepit](https://github.com/rickhallett/thepit). Clean-room implementation of proven protocols, not a fork.
